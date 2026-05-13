@@ -61,7 +61,7 @@ clear_screen:
     ret
 
 ; ============================================================
-; GOTOXY ó DH=row, DL=col
+; GOTOXY ‚Äî DH=row, DL=col
 ; ============================================================
 gotoxy:
     mov ah, 02h
@@ -70,7 +70,7 @@ gotoxy:
     ret
 
 ; ============================================================
-; PRINT_STR ó SI=string, BL=color, DH=row, DL=col
+; PRINT_STR ‚Äî SI=string, BL=color, DH=row, DL=col
 ; ============================================================
 print_str:
     call gotoxy
@@ -90,7 +90,7 @@ print_str:
     ret
 
 ; ============================================================
-; PRINT_CHAR ó AL=char, BL=color, DH=row, DL=col
+; PRINT_CHAR ‚Äî AL=char, BL=color, DH=row, DL=col
 ; ============================================================
 print_char:
     call gotoxy
@@ -410,18 +410,42 @@ placeholder_leaderboard:
     ret
 
 ; ============================================================
-; DELAY ó CPU loop for speed control
+; DELAY ‚Äî CPU loop for speed control
 ; ============================================================
 delay_loop:
     push cx
+    push bx
+    mov bx, 5
+    mov cx, 0FFFFh
+.outer:
     mov cx, 0FFFFh
 .inner:
     loop .inner
+    dec bx
+    jnz .outer
+    pop bx
     pop cx
     ret
 
 ; ============================================================
-; DRAW HUD ó Score and Lives on row 0
+; RANDOMIZE PIPE ‚Äî pick a new gap_top using BIOS timer
+; Valid range: gap_top in [2 .. 23 - gap_size - 2]
+;   = [2 .. 15] for gap_size=6  => range of 14 values
+; ============================================================
+randomize_pipe:
+    mov ah, 00h
+    int 1Ah             ; CX:DX = BIOS ticks since midnight
+
+    mov al, dl          ; low byte ‚Äî changes most rapidly
+    xor ah, ah          ; clear AH so AX = 0x00?? only
+    mov bl, 14          ; 14 possible positions (2..15 inclusive)
+    div bl              ; AH = AL mod 14  (remainder in AH)
+    add ah, 2           ; shift into range [2..15]
+    mov [gap_top], ah
+    ret
+
+; ============================================================
+; DRAW HUD ‚Äî Score and Lives on row 0
 ; ============================================================
 draw_hud:
     mov dh, 0
@@ -551,7 +575,7 @@ draw_ground:
     ret
 
 ; ============================================================
-; CHECK COLLISION ó AL=1 hit, AL=0 safe
+; CHECK COLLISION ‚Äî AL=1 hit, AL=0 safe
 ; ============================================================
 check_collision:
     ; Bottom wall
@@ -600,7 +624,7 @@ update_score:
     ret
 
 ; ============================================================
-; LOSE LIFE ó flash red, reset bird or trigger game over
+; LOSE LIFE ‚Äî flash red, reset bird or trigger game over
 ; ============================================================
 lose_life:
     dec byte [lives]
@@ -693,13 +717,13 @@ init_game:
     mov byte [velocity], 0
     mov byte [pipe_x], 79
     mov byte [old_pipe_x], 79
-    mov byte [gap_top], 8
     mov byte [gap_size], 6
     mov byte [lives], 3
     mov byte [score_hi], 0
     mov byte [score_lo], 0
     mov byte [jumped], 0
     mov byte [game_state], 1
+    call randomize_pipe     ; set a random gap_top from the very start
     ret
 
 ; ============================================================
@@ -753,6 +777,7 @@ game:
 .reset_pipe:
     mov byte [pipe_x], 79
     mov byte [old_pipe_x], 79
+    call randomize_pipe         ; ‚Üê new random gap every pipe cycle
 
 .do_collision:
     call check_collision
@@ -790,12 +815,13 @@ game:
 ; DATA
 ; ============================================================
 
-title_l1   db ' _____ _       _   ___ ____  _   _     ____ ___ ____  ____  $'
-title_l2   db '|  ___| |     / \ | _ \_ _|| | | |   | __ )_ _|  _ \|  _ \ $'
-title_l3   db '| |_  | |    / _ \|  _/| | | |_| |   |  _ \| || |_) | | | |$'
-title_l4   db '|  _| | |___/ ___ \ |  | | |  _  |   | |_) | ||  _ <| |_| |$'
-title_l5   db '|_|   |_____/_/  \_\_| |___||_| |_|   |____/___|_| \_\____/ $'
-title_line db '===============================================================$'
+; ASCII art title ‚Äî "FLAPPY BIRD"
+title_l1  db ' _____ _     _   _ _____ ______   __    ____ ___ ____  ____   $'
+title_l2  db '|  ___| |   / \ | |  _ \|  _ \ \ / /   | __ )_ _|  _ \|  _ \  $'
+title_l3  db '| |_  | |  / _ \| | |_) | |_) \ V /    |  _ \| || |_) | | | | $'
+title_l4  db '|  _| | |_/ ___ \ |  __/|  __/ | |     | |_) | ||  _ <| |_| | $'
+title_l5  db '|_|   |_/_/   \_\_|_|   |_|    |_|     |____/___|_| \_\____/  $'
+title_line db '=============================================================$'
 
 opt1       db '1. Start Game$'
 opt2       db '2. Leaderboard$'
