@@ -61,7 +61,7 @@ clear_screen:
     ret
 
 ; ============================================================
-; GOTOXY â€” DH=row, DL=col
+; GOTOXY — DH=row, DL=col
 ; ============================================================
 gotoxy:
     mov ah, 02h
@@ -70,7 +70,7 @@ gotoxy:
     ret
 
 ; ============================================================
-; PRINT_STR â€” SI=string, BL=color, DH=row, DL=col
+; PRINT_STR — SI=string, BL=color, DH=row, DL=col
 ; ============================================================
 print_str:
     call gotoxy
@@ -90,7 +90,7 @@ print_str:
     ret
 
 ; ============================================================
-; PRINT_CHAR â€” AL=char, BL=color, DH=row, DL=col
+; PRINT_CHAR — AL=char, BL=color, DH=row, DL=col
 ; ============================================================
 print_char:
     call gotoxy
@@ -410,7 +410,7 @@ placeholder_leaderboard:
     ret
 
 ; ============================================================
-; DELAY â€” CPU loop for speed control
+; DELAY — CPU loop for speed control
 ; ============================================================
 delay_loop:
     push cx
@@ -421,7 +421,7 @@ delay_loop:
     ret
 
 ; ============================================================
-; DRAW HUD â€” Score and Lives on row 0
+; DRAW HUD — Score and Lives on row 0
 ; ============================================================
 draw_hud:
     mov dh, 0
@@ -551,7 +551,7 @@ draw_ground:
     ret
 
 ; ============================================================
-; CHECK COLLISION â€” AL=1 hit, AL=0 safe
+; CHECK COLLISION — AL=1 hit, AL=0 safe
 ; ============================================================
 check_collision:
     ; Bottom wall
@@ -600,7 +600,7 @@ update_score:
     ret
 
 ; ============================================================
-; LOSE LIFE â€” flash red, reset bird or trigger game over
+; LOSE LIFE — flash red, reset bird or trigger game over
 ; ============================================================
 lose_life:
     dec byte [lives]
