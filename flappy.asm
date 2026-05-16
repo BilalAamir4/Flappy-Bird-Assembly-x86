@@ -1,6 +1,6 @@
 ; ============================================================
 ; FLAPPY BIRD - Complete Game
-; Features: 2 pipes, random gaps, speed increase, file leaderboard
+; Features: 2 pipes, random gaps, speed increase, file leaderboard, star boost
 ; NASM flat binary .COM file
 ; Assemble: nasm flappy.asm -f bin -o flappy.com
 ; scores.dat must be in same folder (auto-created if missing)
@@ -11,7 +11,7 @@ org 100h
 ; ============================================================
 ; CONSTANTS
 ; ============================================================
-; scores.dat = 3 x (1 score byte + 21 name bytes) = 69 bytes
+; scores.dat = 3 x (1 score byte + 21 name bytes) = 66 bytes
 LB_SLOTS      equ 3
 LB_SLOT_SIZE  equ 22        ; 1 score + 21 name bytes
 LB_TOTAL      equ 66        ; 3 * 22
@@ -486,39 +486,79 @@ delay_loop:
     ret
 
 ; ============================================================
-; UPDATE SPEED — every 5 points reduce delay by 1 (min 1)
+; UPDATE SPEED — every 5 points reduce pipe_move_rate (min 1)
 ; ============================================================
 update_speed:
+    ; Compute total score using 16-bit math to avoid divide overflow
+    xor dx, dx
+    xor ax, ax
+    mov al, [score_hh]
+    mov bx, 100
+    mul bx                  ; AX = score_hh * 100
+    mov cx, ax              ; save in CX
+
+    xor ax, ax
     mov al, [score_hi]
     mov bl, 10
-    mul bl
-    add al, [score_lo]      ; AL = total score
-    mov bl, 5
-    div bl                  ; AL = score / 5
-    mov bl, 5
-    sub bl, al              ; bl = 5 - level
-    cmp bl, 1
-    jge .set_delay
-    mov bl, 1
-.set_delay:
-    mov [delay_count], bl
+    mul bl                  ; AX = score_hi * 10
+    add cx, ax
+
+    xor ax, ax
+    mov al, [score_lo]
+    add cx, ax              ; CX = total score
+
+    mov ax, cx
+    xor dx, dx              ; MUST clear DX before DIV
+    mov bx, 5
+    div bx                  ; AX = level (quotient)
+
+    ; pipe_move_rate = 4 - level, minimum 1
+    mov bx, 4
+    sub bx, ax              ; BX = 4 - level
+    cmp bx, 1
+    jge .set_rate
+    mov bx, 1
+.set_rate:
+    mov [pipe_move_rate], bl
+    ret
+
+; ============================================================
+; XOR_RAND — returns random byte in AL
+; ============================================================
+xor_rand:
+    push dx
+    mov ah, 00h
+    int 1Ah                 ; DL = timer tick low byte
+    mov al, [rng_state]
+    ; XOR AL with (AL << 3)
+    mov ah, al
+    shl ah, 3
+    xor al, ah
+    ; XOR AL with (AL >> 5)
+    mov ah, al
+    shr ah, 5
+    xor al, ah
+    ; XOR AL with (AL << 1)
+    mov ah, al
+    shl ah, 1
+    xor al, ah
+    ; XOR AL with DL (timer tick)
+    xor al, dl
+    mov [rng_state], al
+    pop dx
     ret
 
 ; ============================================================
 ; RANDOMIZE PIPE — BX = pipe index
 ; ============================================================
 randomize_pipe:
+    call xor_rand           ; AL = random byte
+    xor al, bl              ; extra variation from pipe index
+    xor ah, ah              ; clear AH before div
     push bx
-    mov ah, 00h
-    int 1Ah
-    mov al, dl
-    xor ah, ah
-    pop bx
-    add al, bl
-    push bx
-    mov bl, 14
-    div bl
-    add ah, 2
+    mov bl, 13
+    div bl                  ; AH = AL mod 13 (range 0..12)
+    add ah, 3               ; gap_top range 3..15
     pop bx
     mov [gap_top + bx], ah
     ret
@@ -532,16 +572,22 @@ draw_hud:
     mov si, str_score_lbl
     mov bl, 0Fh
     call print_str
-    mov al, [score_hi]
+    mov al, [score_hh]
     add al, '0'
     mov dh, 0
     mov dl, 8
     mov bl, 0Eh
     call print_char
-    mov al, [score_lo]
+    mov al, [score_hi]
     add al, '0'
     mov dh, 0
     mov dl, 9
+    mov bl, 0Eh
+    call print_char
+    mov al, [score_lo]
+    add al, '0'
+    mov dh, 0
+    mov dl, 10
     mov bl, 0Eh
     call print_char
 
@@ -562,13 +608,30 @@ draw_hud:
     mov si, str_speed_lbl
     mov bl, 0Fh
     call print_str
-    mov al, 6
-    sub al, [delay_count]
+    mov al, 5
+    sub al, [pipe_move_rate]
     add al, '0'
     mov dh, 0
     mov dl, 42
     mov bl, 0Bh
     call print_char
+
+    ; Boost indicator
+    cmp byte [has_boost], 1
+    jne .no_boost_icon
+    mov dh, 0
+    mov dl, 72
+    mov al, 0F7h
+    mov bl, 0Eh
+    call print_char
+    jmp .hud_done
+.no_boost_icon:
+    mov dh, 0
+    mov dl, 72
+    mov al, ' '
+    mov bl, 17h
+    call print_char
+.hud_done:
     ret
 
 ; ============================================================
@@ -588,6 +651,102 @@ draw_bird:
     mov al, 0DBh
     mov bl, 0Eh
     call print_char
+    ret
+
+; ============================================================
+; ERASE STAR
+; ============================================================
+erase_star:
+    cmp byte [star_x], 0
+    je  .erase_star_done
+    mov dh, [star_y]
+    mov dl, [star_x]
+    mov al, ' '
+    mov bl, 17h
+    call print_char
+.erase_star_done:
+    ret
+
+; ============================================================
+; DRAW STAR
+; ============================================================
+draw_star:
+    cmp byte [star_x], 0
+    je  .draw_star_done
+    mov dh, [star_y]
+    mov dl, [star_x]
+    mov al, 0F7h
+    mov bl, 0Eh
+    call print_char
+.draw_star_done:
+    ret
+
+; ============================================================
+; UPDATE STAR — spawn, move, and check collision with bird
+; ============================================================
+update_star:
+    cmp byte [star_x], 0
+    jne .move_star
+
+    ; Star inactive — count down spawn timer
+    dec byte [star_timer]
+    cmp byte [star_timer], 0
+    jne .update_star_done
+
+    ; SPAWN: reset timer
+    call xor_rand
+    xor ah, ah
+    mov bl, 60
+    div bl
+    add ah, 40
+    mov [star_timer], ah
+
+    ; Random Y position (4..19)
+    call xor_rand
+    xor ah, ah
+    mov bl, 16
+    div bl
+    add ah, 4
+    mov [star_y], ah
+
+    ; Start at right edge
+    mov byte [star_x], 78
+    jmp .update_star_done
+
+.move_star:
+    dec byte [star_x]
+    cmp byte [star_x], 0
+    jne .check_star_collision
+
+    ; Went off screen — reset timer
+    call xor_rand
+    xor ah, ah
+    mov bl, 60
+    div bl
+    add ah, 40
+    mov [star_timer], ah
+    jmp .update_star_done
+
+.check_star_collision:
+    mov al, [star_x]
+    cmp al, [bird_x]
+    jne .update_star_done
+    mov al, [star_y]
+    cmp al, [bird_y]
+    jne .update_star_done
+
+    ; Collected!
+    mov byte [has_boost], 1
+    mov byte [star_x], 0
+
+    call xor_rand
+    xor ah, ah
+    mov bl, 60
+    div bl
+    add ah, 40
+    mov [star_timer], ah
+
+.update_star_done:
     ret
 
 ; ============================================================
@@ -669,6 +828,37 @@ draw_ground:
     ret
 
 ; ============================================================
+; DRAW GROUND SCROLL — animated ground on row 23
+; ============================================================
+draw_ground_scroll:
+    inc byte [ground_offset]
+
+    mov dh, 23
+    mov dl, 0
+    mov cx, 80
+.loop:
+    push cx
+    push dx
+    mov al, dl
+    add al, [ground_offset]
+    and al, 1
+    cmp al, 0
+    je .char_dash
+    mov al, ' '
+    jmp .print
+.char_dash:
+    mov al, '-'
+.print:
+    mov bl, 06h
+    call print_char
+    pop dx
+    pop cx
+    inc dl
+    loop .loop
+
+    ret
+
+; ============================================================
 ; CHECK COLLISION
 ; ============================================================
 check_collision_i:
@@ -722,6 +912,11 @@ update_score:
     jl  .no_score
     mov byte [score_lo], 0
     inc byte [score_hi]
+    cmp byte [score_hi], 10
+    jl  .update_spd
+    mov byte [score_hi], 0
+    inc byte [score_hh]
+.update_spd:
     call update_speed
 .no_score:
     ret
@@ -730,6 +925,8 @@ update_score:
 ; LOSE LIFE
 ; ============================================================
 lose_life:
+    mov byte [jump_sound_timer], 0
+    call speaker_off
     dec byte [lives]
     cmp byte [lives], 0
     je  .truly_dead
@@ -745,6 +942,12 @@ lose_life:
     mov bh, 4Fh
     int 10h
     call delay_loop
+    push cx
+    mov al, 60h
+    mov ah, 10h
+    mov cx, 1
+    call beep
+    pop cx
     call delay_loop
     mov ah, 06h
     mov al, 0
@@ -760,8 +963,10 @@ lose_life:
     mov byte [bird_y], 10
     mov byte [velocity], 0
     mov byte [jumped], 0
+    mov byte [pipe_moved], 0
     ret
 .truly_dead:
+    call sound_death
     mov byte [game_state], 0
     ret
 
@@ -773,11 +978,25 @@ lose_life:
 ;   slot 2: lb_scores+44 (score), lb_scores+45 (name, 21 bytes)
 ; ============================================================
 save_score:
-    ; Compute final score as single byte (hi*10 + lo)
+    ; Compute final score using 16-bit math: AX = hh*100 + hi*10 + lo
+    xor ax, ax
+    mov al, [score_hh]
+    mov bl, 100
+    mul bl                  ; AX = score_hh * 100
+    push ax
+    xor ax, ax
     mov al, [score_hi]
     mov bl, 10
-    mul bl
-    add al, [score_lo]
+    mul bl                  ; AX = score_hi * 10
+    pop bx
+    add ax, bx              ; AX = hh*100 + hi*10
+    xor bh, bh
+    mov bl, [score_lo]
+    add ax, bx              ; AX = total score
+    cmp ax, 255
+    jle .no_cap
+    mov ax, 255             ; cap at 255 for 1-byte slot
+.no_cap:
     mov [cur_score_byte], al
 
     ; Compare against slot 0
@@ -1034,17 +1253,24 @@ game_over_screen:
     mov bl, 0Fh
     call print_str
 
-    mov al, [score_hi]
+    mov al, [score_hh]
     add al, '0'
     mov dh, 10
     mov dl, 41
     mov bl, 0Eh
     call print_char
 
-    mov al, [score_lo]
+    mov al, [score_hi]
     add al, '0'
     mov dh, 10
     mov dl, 42
+    mov bl, 0Eh
+    call print_char
+
+    mov al, [score_lo]
+    add al, '0'
+    mov dh, 10
+    mov dl, 43
     mov bl, 0Eh
     call print_char
 
@@ -1053,7 +1279,7 @@ game_over_screen:
     cmp al, 0
     je  .no_record
     cmp al, [lb_scores + 44]
-    jl  .no_record
+    jle .no_record
 
     mov dh, 12
     mov dl, 23
@@ -1085,12 +1311,22 @@ init_game:
     mov byte [old_pipe_x + 1], 39
     mov byte [gap_size], 6
     mov byte [lives], 3
+    mov byte [score_hh], 0
     mov byte [score_hi], 0
     mov byte [score_lo], 0
     mov byte [cur_score_byte], 0
     mov byte [jumped], 0
     mov byte [game_state], 1
-    mov byte [delay_count], 5
+    mov byte [delay_count],   3    ; fixed base tick rate
+    mov byte [pipe_move_rate], 4
+    mov byte [pipe_tick],      0
+    mov byte [pipe_moved],     0
+    mov byte [jump_sound_timer], 0
+    mov byte [rng_state], 0xA5
+    mov byte [ground_offset], 0
+    mov byte [star_x], 0
+    mov byte [star_timer], 30
+    mov byte [has_boost], 0
     xor bx, bx
     call randomize_pipe
     mov bx, 1
@@ -1103,11 +1339,12 @@ init_game:
 game:
     call init_game
     call clear_screen
-    call draw_ground
+    call draw_ground_scroll
 
 .game_loop:
     call erase_bird
     call erase_pipes
+    call erase_star
 
     ; --- INPUT ---
     mov byte [jumped], 0
@@ -1124,7 +1361,13 @@ game:
     jle .no_key
     dec byte [bird_y]
     dec byte [bird_y]
+    cmp byte [has_boost], 1
+    jne .no_boost_jump
+    dec byte [bird_y]
+    mov byte [has_boost], 0
+.no_boost_jump:
     mov byte [jumped], 1
+    call sound_jump
 
 .no_key:
     ; --- GRAVITY ---
@@ -1133,7 +1376,17 @@ game:
     inc byte [bird_y]
 
 .skip_gravity:
+    call update_star
+
     ; --- MOVE PIPES ---
+    mov byte [pipe_moved], 0    ; default to not moved
+    inc byte [pipe_tick]
+    mov al, [pipe_tick]
+    cmp al, [pipe_move_rate]
+    jl  .skip_pipe_move
+    mov byte [pipe_tick], 0
+    mov byte [pipe_moved], 1    ; flag that pipes are moving this frame
+
     mov al, [pipe_x]
     mov [old_pipe_x], al
     mov al, [pipe_x + 1]
@@ -1153,14 +1406,23 @@ game:
     cmp byte [pipe_x + 1], 0
     je  .reset_pipe1
     dec byte [pipe_x + 1]
-    jmp .do_collision
+    jmp .skip_pipe_move
 .reset_pipe1:
     mov byte [pipe_x + 1], 79
     mov byte [old_pipe_x + 1], 79
     mov bx, 1
     call randomize_pipe
 
-.do_collision:
+.skip_pipe_move:
+
+    cmp byte [jump_sound_timer], 0
+    je .skip_sound_tick
+    dec byte [jump_sound_timer]
+    cmp byte [jump_sound_timer], 0
+    jne .skip_sound_tick
+    call speaker_off
+.skip_sound_tick:
+
     call check_collision
     cmp al, 1
     jne .no_collision
@@ -1168,14 +1430,18 @@ game:
     cmp byte [game_state], 0
     je  .game_over
     call clear_screen
-    call draw_ground
+    call draw_ground_scroll
     jmp .draw_frame
 
 .no_collision:
+    cmp byte [pipe_moved], 1
+    jne .draw_frame             ; If pipes didn't move, skip scoring
     call update_score
 
 .draw_frame:
+    call draw_ground_scroll
     call draw_pipes
+    call draw_star
     call draw_bird
     call draw_hud
     call delay_loop
@@ -1190,6 +1456,75 @@ game:
 .quit_game:
     call save_score
     call clear_screen
+    ret
+
+; ============================================================
+; PC SPEAKER — speaker_on, speaker_off, beep, sound_jump, sound_death
+; ============================================================
+
+; --- speaker_on: AL = low byte, AH = high byte ---
+speaker_on:
+    push ax
+    mov al, 0B6h
+    out 43h, al
+    pop ax
+    push ax           ; save frequency before port 61h clobbers AL
+    out 42h, al
+    mov al, ah
+    out 42h, al
+    in  al, 61h
+    or  al, 03h
+    out 61h, al
+    pop ax            ; restore original AX
+    ret
+
+; --- speaker_off ---
+speaker_off:
+    push ax
+    in  al, 61h
+    and al, 0FCh      ; clear bits 0 and 1
+    out 61h, al
+    pop ax
+    ret
+
+; --- beep: AX = frequency word, CX = duration (busy-wait) ---
+; Used ONLY for blocking events (death/damage) to create hit-pause
+beep:
+    call speaker_on
+.wait:
+    push cx
+    mov  cx, 0FFFFh
+.inner:
+    loop .inner
+    pop  cx
+    loop .wait
+    call speaker_off
+    ret
+
+; --- sound_jump ---
+; NON-BLOCKING: Turns speaker on and sets a timer, physics keep running
+sound_jump:
+    mov al, 0D3h      ; ~800 Hz low byte
+    mov ah, 05h       ; ~800 Hz high byte
+    call speaker_on
+    mov byte [jump_sound_timer], 2   ; keep speaker on for 2 frames
+    ret
+
+; --- sound_death ---
+; BLOCKING: Descending slide for game over
+sound_death:
+    mov al, 0D3h
+    mov ah, 05h
+    mov cx, 1
+    call beep
+    mov al, 0A0h
+    mov ah, 09h
+    mov cx, 1
+    call beep
+    mov al, 60h
+    mov ah, 10h
+    mov cx, 2
+    call beep
     ret
 
 ; ============================================================
@@ -1248,11 +1583,22 @@ old_pipe_x    db 79, 39
 gap_top       db 8, 8
 gap_size      db 6
 lives         db 3
+score_hh      db 0
 score_hi      db 0
 score_lo      db 0
 cur_score_byte db 0
 game_state    db 1
 delay_count   db 5
+rng_state     db 0xA5
+star_x        db 0
+star_y        db 0
+star_timer    db 30
+has_boost     db 0
+ground_offset db 0
+pipe_tick      db 0    ; counts up each frame
+pipe_move_rate db 4    ; pipes move every N frames
+pipe_moved     db 0    ; 1 = pipes moved this frame, 0 = didn't move
+jump_sound_timer db 0
 
 ; Leaderboard buffer — 3 slots x 22 bytes = 66 bytes
 ; Each slot: [score_byte][name 21 bytes]
