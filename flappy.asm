@@ -30,12 +30,15 @@ start:
     mov cl, 0
     int 10h
 
+
+
     ; Load leaderboard from file at startup
     call load_scores
 
     call clear_screen
     call name_input
     call main_menu
+
 
     ; Restore cursor and exit
     mov ah, 01h
@@ -270,11 +273,29 @@ draw_menu:
     je  .hi4
     mov bl, 0Fh
     call print_str
-    jmp .done_opts
+    jmp .opt5
 .hi4:
     mov bl, 0Ah
     call print_str
     mov dh, 15
+    mov dl, 28
+    mov al, 10h
+    mov bl, 0Eh
+    call print_char
+
+.opt5:
+    mov dh, 17
+    mov dl, 30
+    mov si, opt5
+    cmp byte [selected], 5
+    je  .hi5
+    mov bl, 0Fh
+    call print_str
+    jmp .done_opts
+.hi5:
+    mov bl, 0Ah
+    call print_str
+    mov dh, 17
     mov dl, 28
     mov al, 10h
     mov bl, 0Eh
@@ -325,7 +346,7 @@ main_menu:
     jmp .menu_loop
 
 .go_down:
-    cmp byte [selected], 4
+    cmp byte [selected], 5
     je  .menu_loop
     inc byte [selected]
     jmp .menu_loop
@@ -337,6 +358,8 @@ main_menu:
     je  .do_leaderboard
     cmp byte [selected], 3
     je  .do_help
+    cmp byte [selected], 4
+    je  .do_2p
     jmp .do_quit
 
 .do_game:
@@ -349,6 +372,10 @@ main_menu:
 
 .do_help:
     call help_screen
+    jmp .menu_loop
+
+.do_2p:
+    call game_2p
     jmp .menu_loop
 
 .do_quit:
@@ -552,15 +579,15 @@ xor_rand:
 ; RANDOMIZE PIPE — BX = pipe index
 ; ============================================================
 randomize_pipe:
-    call xor_rand           ; AL = random byte
-    xor al, bl              ; extra variation from pipe index
-    xor ah, ah              ; clear AH before div
+    call xor_rand
+    xor  al, bl
+    xor  ah, ah
     push bx
-    mov bl, 13
-    div bl                  ; AH = AL mod 13 (range 0..12)
-    add ah, 3               ; gap_top range 3..15
-    pop bx
-    mov [gap_top + bx], ah
+    mov  bl, 10             ; remainder 0..9
+    div  bl
+    add  ah, 4              ; gap_top range: 4..13
+    pop  bx
+    mov  [gap_top + bx], ah
     ret
 
 ; ============================================================
@@ -640,16 +667,31 @@ draw_hud:
 erase_bird:
     mov dh, [bird_y]
     mov dl, [bird_x]
-    mov al, ' '
-    mov bl, 17h
-    call print_char
+    call restore_bg_char
     ret
 
 draw_bird:
     mov dh, [bird_y]
     mov dl, [bird_x]
+    mov bl, 0Eh             ; yellow (P1)
+
+    ; Select character based on bird_frame
+    mov al, [bird_frame]
+    cmp al, 0
+    je  .frame0
+    cmp al, 1
+    je  .frame1
+
+    ; frame 2
+    mov al, 0E0h
+    jmp .do_draw
+
+.frame0:
+    mov al, 0F0h
+    jmp .do_draw
+.frame1:
     mov al, 0DBh
-    mov bl, 0Eh
+.do_draw:
     call print_char
     ret
 
@@ -661,9 +703,7 @@ erase_star:
     je  .erase_star_done
     mov dh, [star_y]
     mov dl, [star_x]
-    mov al, ' '
-    mov bl, 17h
-    call print_char
+    call restore_bg_char
 .erase_star_done:
     ret
 
@@ -701,12 +741,12 @@ update_star:
     add ah, 40
     mov [star_timer], ah
 
-    ; Random Y position (4..19)
+    ; Random Y position (4..37)
     call xor_rand
     xor ah, ah
     mov bl, 16
     div bl
-    add ah, 4
+    add ah, 4              ; range: 4..19
     mov [star_y], ah
 
     ; Start at right edge
@@ -750,6 +790,61 @@ update_star:
     ret
 
 ; ============================================================
+; RESTORE_BG_CHAR — Repaints the background at DH=row, DL=col
+; Checks skyline_heights[DL] and prints sky, roof, or body.
+; ============================================================
+restore_bg_char:
+    push ax
+    push bx
+    push si
+
+    ; Load height for this column: SI = skyline_heights + DL
+    xor si, si
+    mov si, skyline_heights
+    xor ax, ax
+    mov al, dl
+    add si, ax                  ; SI now points to skyline_heights[DL]
+    mov al, [si]                ; AL = height of building at this column
+    xor ah, ah
+
+    ; If height is 0, no building here — print sky
+    cmp al, 0
+    je  .rbg_sky
+
+    ; Calculate top_row = 23 - height
+    mov ah, 23
+    sub ah, al                  ; AH = top_row
+
+    ; Compare current row (DH) against top_row (AH)
+    cmp dh, ah
+    jl  .rbg_sky                ; DH < top_row → sky
+    je  .rbg_roof               ; DH == top_row → roof
+    ; else DH > top_row → body
+
+.rbg_body:
+    mov al, 0DBh
+    mov bl, 08h
+    call print_char
+    jmp .rbg_done
+
+.rbg_roof:
+    mov al, 0DCh
+    mov bl, 07h
+    call print_char
+    jmp .rbg_done
+
+.rbg_sky:
+    mov al, ' '
+    mov bl, 17h
+    call print_char
+
+.rbg_done:
+    pop si
+    pop bx
+    pop ax
+    ret
+
+; ============================================================
 ; ERASE PIPE COLUMN — DL = column
 ; ============================================================
 erase_pipe_col:
@@ -757,9 +852,7 @@ erase_pipe_col:
 .erase_loop:
     cmp dh, 23
     jge .erase_done
-    mov al, ' '
-    mov bl, 17h
-    call print_char
+    call restore_bg_char
     inc dh
     jmp .erase_loop
 .erase_done:
@@ -777,9 +870,8 @@ erase_pipes:
 ; ============================================================
 draw_pipe_i:
     mov dh, 1
-    mov cl, [gap_top + bx]
 .top_loop:
-    cmp dh, cl
+    cmp dh, [gap_top + bx]  ; Read directly from memory, bypass CL
     jge .skip_top
     mov al, 0B3h
     mov bl, 02h
@@ -859,6 +951,61 @@ draw_ground_scroll:
     ret
 
 ; ============================================================
+; DRAW SKY — static city skyline at bottom of playfield
+; ============================================================
+draw_sky:
+    push bx
+    push cx
+    push si
+
+    mov si, skyline_heights   ; SI points to height table
+    mov dl, 0                 ; DL = current column (0..79)
+
+.col_loop:
+    cmp dl, 80
+    jge .sky_done
+
+    push dx
+    mov bl, [si]              ; BL = height for this column
+    xor bh, bh
+    cmp bx, 0
+    je  .next_col             ; height 0 = no building here
+
+    mov dh, 23
+    sub dh, bl                ; DH = top row of building
+
+    ; Draw rooftop
+    mov al, 0DCh
+    mov bl, 07h               ; light grey rooftop
+    push cx
+    call print_char
+    pop cx
+    inc dh
+
+.body_loop:
+    cmp dh, 23                ; stop before ground row
+    jge .next_col
+    mov al, 0DBh
+    mov bl, 08h               ; dark grey building body
+    push cx
+    call print_char
+    pop cx
+    inc dh
+    jmp .body_loop
+
+.next_col:
+    pop dx
+    inc dl
+    inc si
+    jmp .col_loop
+
+.sky_done:
+    pop si
+    pop cx
+    pop bx
+    ret
+
+; ============================================================
 ; CHECK COLLISION
 ; ============================================================
 check_collision_i:
@@ -868,14 +1015,19 @@ check_collision_i:
     mov al, [bird_x]
     cmp al, [pipe_x + bx]
     jne .no_hit
+
     mov al, [bird_y]
     mov cl, [gap_top + bx]
+    dec cl                  ; 1 row grace on top lip
     cmp al, cl
     jl  .hit
+
     mov cl, [gap_top + bx]
     add cl, [gap_size]
+    inc cl                  ; 1 row grace on bottom lip
     cmp al, cl
     jge .hit
+
 .no_hit:
     mov al, 0
     ret
@@ -891,6 +1043,95 @@ check_collision:
     mov bx, 1
     call check_collision_i
 .done:
+    ret
+
+; ============================================================
+; ERASE / DRAW BIRD 2
+; ============================================================
+erase_bird2:
+    mov dh, [bird2_y]
+    mov dl, [bird2_x]
+    call restore_bg_char
+    ret
+
+draw_bird2:
+    mov dh, [bird2_y]
+    mov dl, [bird2_x]
+    mov bl, 0Ch             ; red (P2)
+
+    mov al, [bird_frame]    ; P2 shares the same animation frame as P1
+    cmp al, 0
+    je  .frame0_2
+    cmp al, 1
+    je  .frame1_2
+
+    mov al, 0E0h
+    jmp .do_draw2
+
+.frame0_2:
+    mov al, 0F0h
+    jmp .do_draw2
+.frame1_2:
+    mov al, 0DBh
+.do_draw2:
+    call print_char
+    ret
+
+; ============================================================
+; ADVANCE BIRD ANIMATION — cycles frame 0,1,2 every 3 ticks
+; ============================================================
+advance_bird_anim:
+    inc byte [anim_tick]
+    mov al, [anim_tick]
+    cmp al, 3              ; advance frame every 3 game ticks
+    jl  .anim_done
+    mov byte [anim_tick], 0
+    inc byte [bird_frame]
+    mov al, [bird_frame]
+    cmp al, 3
+    jl  .anim_done
+    mov byte [bird_frame], 0
+.anim_done:
+    ret
+
+; ============================================================
+; CHECK COLLISION — BIRD 2
+; ============================================================
+check_col2_i:
+    mov al, [bird2_y]
+    cmp al, 23
+    jge .hit2
+    mov al, [bird2_x]
+    cmp al, [pipe_x + bx]
+    jne .no_hit2
+
+    mov al, [bird2_y]
+    mov cl, [gap_top + bx]
+    dec cl                  ; 1 row grace on top lip
+    cmp al, cl
+    jl  .hit2
+
+    mov cl, [gap_top + bx]
+    add cl, [gap_size]
+    inc cl                  ; 1 row grace on bottom lip
+    cmp al, cl
+    jge .hit2
+
+.no_hit2:
+    mov al, 0
+    ret
+.hit2:
+    mov al, 1
+    ret
+
+check_collision2:
+    xor bx, bx
+    call check_col2_i
+    cmp al, 1
+    je  .done2
+    mov bx, 1
+    call check_col2_i
+.done2:
     ret
 
 ; ============================================================
@@ -1309,7 +1550,7 @@ init_game:
     mov byte [pipe_x + 1],   39
     mov byte [old_pipe_x],     79
     mov byte [old_pipe_x + 1], 39
-    mov byte [gap_size], 6
+    mov byte [gap_size], 5
     mov byte [lives], 3
     mov byte [score_hh], 0
     mov byte [score_hi], 0
@@ -1327,6 +1568,9 @@ init_game:
     mov byte [star_x], 0
     mov byte [star_timer], 30
     mov byte [has_boost], 0
+    mov byte [bird_frame], 0
+    mov byte [anim_tick], 0
+    mov byte [gravity_tick], 0
     xor bx, bx
     call randomize_pipe
     mov bx, 1
@@ -1339,6 +1583,7 @@ init_game:
 game:
     call init_game
     call clear_screen
+    call draw_sky
     call draw_ground_scroll
 
 .game_loop:
@@ -1370,9 +1615,18 @@ game:
     call sound_jump
 
 .no_key:
+    ; --- GRAVITY TICK UPDATE ---
+    inc byte [gravity_tick]
+    cmp byte [gravity_tick], 2
+    jl  .check_grav
+    mov byte [gravity_tick], 0
+
+.check_grav:
     ; --- GRAVITY ---
     cmp byte [jumped], 1
     je  .skip_gravity
+    cmp byte [gravity_tick], 0
+    jne .skip_gravity
     inc byte [bird_y]
 
 .skip_gravity:
@@ -1430,6 +1684,7 @@ game:
     cmp byte [game_state], 0
     je  .game_over
     call clear_screen
+    call draw_sky
     call draw_ground_scroll
     jmp .draw_frame
 
@@ -1439,6 +1694,7 @@ game:
     call update_score
 
 .draw_frame:
+    call advance_bird_anim
     call draw_ground_scroll
     call draw_pipes
     call draw_star
@@ -1456,6 +1712,287 @@ game:
 .quit_game:
     call save_score
     call clear_screen
+    ret
+
+; ============================================================
+; 2-PLAYER GAME LOOP
+; ============================================================
+game_2p:
+    call init_game
+    mov byte [p1_dead], 0
+    mov byte [p2_dead], 0
+    mov byte [bird_y],  8
+    mov byte [bird2_y], 14
+    call clear_screen
+    call draw_sky
+    call draw_ground
+
+    mov dh, 0
+    mov dl, 1
+    mov si, str_p1_lbl
+    mov bl, 0Eh
+    call print_str
+
+    mov dh, 0
+    mov dl, 55
+    mov si, str_p2_lbl
+    mov bl, 0Ch
+    call print_str
+
+.g2_loop:
+    ; Erase both birds
+    cmp byte [p1_dead], 0
+    jne .skip_erase1
+    call erase_bird
+.skip_erase1:
+    cmp byte [p2_dead], 0
+    jne .skip_erase2
+    call erase_bird2
+.skip_erase2:
+
+    call erase_pipes
+
+    ; --- INPUT ---
+    mov byte [jumped],  0
+    mov byte [jumped2], 0
+
+    mov ah, 01h
+    int 16h
+    jz  .g2_no_key
+    mov ah, 00h
+    int 16h
+
+    cmp al, 1Bh
+    je  .g2_quit
+
+    ; P1: Space
+    cmp al, 20h
+    jne .check_p2_key
+    cmp byte [p1_dead], 1
+    je  .check_p2_key
+    cmp byte [bird_y], 2
+    jle .check_p2_key
+    dec byte [bird_y]
+    dec byte [bird_y]
+    mov byte [jumped], 1
+    call sound_jump
+    jmp .g2_no_key
+
+    ; P2: Enter
+.check_p2_key:
+    cmp al, 0Dh
+    jne .g2_no_key
+    cmp byte [p2_dead], 1
+    je  .g2_no_key
+    cmp byte [bird2_y], 2
+    jle .g2_no_key
+    dec byte [bird2_y]
+    dec byte [bird2_y]
+    mov byte [jumped2], 1
+    call sound_jump
+
+.g2_no_key:
+    ; --- GRAVITY TICK UPDATE ---
+    inc byte [gravity_tick]
+    cmp byte [gravity_tick], 2
+    jl  .check_p1_grav
+    mov byte [gravity_tick], 0
+
+.check_p1_grav:
+    ; --- GRAVITY P1 ---
+    cmp byte [p1_dead], 1
+    je  .skip_grav1
+    cmp byte [jumped], 1
+    je  .skip_grav1
+    cmp byte [gravity_tick], 0
+    jne .skip_grav1
+    inc byte [bird_y]
+.skip_grav1:
+
+    ; --- GRAVITY P2 ---
+    cmp byte [p2_dead], 1
+    je  .skip_grav2
+    cmp byte [jumped2], 1
+    je  .skip_grav2
+    cmp byte [gravity_tick], 0
+    jne .skip_grav2
+    inc byte [bird2_y]
+.skip_grav2:
+
+    ; --- PIPE TICK GATE ---
+    mov byte [pipe_moved], 0
+    inc byte [pipe_tick]
+    mov al, [pipe_tick]
+    cmp al, [pipe_move_rate]
+    jl  .g2_skip_pipes
+    mov byte [pipe_tick], 0
+    mov byte [pipe_moved], 1
+
+    mov al, [pipe_x]
+    mov [old_pipe_x], al
+    mov al, [pipe_x + 1]
+    mov [old_pipe_x + 1], al
+
+    cmp byte [pipe_x], 0
+    je  .g2_reset0
+    dec byte [pipe_x]
+    jmp .g2_pipe1
+.g2_reset0:
+    mov byte [pipe_x], 79
+    mov byte [old_pipe_x], 79
+    xor bx, bx
+    call randomize_pipe
+
+.g2_pipe1:
+    cmp byte [pipe_x + 1], 0
+    je  .g2_reset1
+    dec byte [pipe_x + 1]
+    jmp .g2_skip_pipes
+.g2_reset1:
+    mov byte [pipe_x + 1], 79
+    mov byte [old_pipe_x + 1], 79
+    mov bx, 1
+    call randomize_pipe
+
+.g2_skip_pipes:
+    ; --- NON-BLOCKING AUDIO TICK ---
+    ; Must be present in this loop — without it the speaker stays on forever
+    cmp byte [jump_sound_timer], 0
+    je  .g2_skip_sound
+    dec byte [jump_sound_timer]
+    cmp byte [jump_sound_timer], 0
+    jne .g2_skip_sound
+    call speaker_off
+.g2_skip_sound:
+
+    ; --- COLLISION P1 ---
+    cmp byte [p1_dead], 1
+    je  .g2_col2
+    call check_collision
+    cmp al, 1
+    jne .g2_col2
+    mov byte [p1_dead], 1
+    call sound_death
+
+    ; --- COLLISION P2 ---
+.g2_col2:
+    cmp byte [p2_dead], 1
+    je  .g2_check_end
+    call check_collision2
+    cmp al, 1
+    jne .g2_check_end
+    mov byte [p2_dead], 1
+    call sound_death
+
+.g2_check_end:
+    ; Match ends if EITHER player is dead (OR, not AND)
+    ; AND would mean both must die simultaneously — zombie player bug
+    mov al, [p1_dead]
+    or  al, [p2_dead]
+    cmp al, 1
+    je  .g2_over
+
+    ; Score only updates on frames where pipes actually moved
+    cmp byte [pipe_moved], 1
+    jne .g2_draw
+    call update_score
+
+.g2_draw:
+    call advance_bird_anim
+    call erase_pipes
+    call draw_pipes
+    cmp byte [p1_dead], 0
+    jne .skip_draw1
+    call draw_bird
+.skip_draw1:
+    cmp byte [p2_dead], 0
+    jne .skip_draw2
+    call draw_bird2
+.skip_draw2:
+    call draw_hud
+    call draw_ground_scroll
+    call delay_loop
+    jmp .g2_loop
+
+.g2_over:
+    call game_over_2p
+    ret
+
+.g2_quit:
+    call clear_screen
+    ret
+
+; ============================================================
+; 2-PLAYER GAME OVER
+; ============================================================
+game_over_2p:
+    call clear_screen
+
+    mov dh, 7
+    mov dl, 26
+    mov si, str_2p_over
+    mov bl, 0Ch
+    call print_str
+
+    ; Determine winner using OR logic to match .g2_check_end
+    mov al, [p1_dead]
+    cmp al, 1
+    je  .p1_lost
+    mov dh, 10
+    mov dl, 28
+    mov si, str_p1_wins
+    mov bl, 0Eh
+    call print_str
+    jmp .show_score_2p
+.p1_lost:
+    mov al, [p2_dead]
+    cmp al, 1
+    je  .its_draw
+    mov dh, 10
+    mov dl, 28
+    mov si, str_p2_wins
+    mov bl, 0Ch
+    call print_str
+    jmp .show_score_2p
+.its_draw:
+    mov dh, 10
+    mov dl, 30
+    mov si, str_draw
+    mov bl, 0Fh
+    call print_str
+
+.show_score_2p:
+    mov dh, 13
+    mov dl, 28
+    mov si, str_finalscore
+    mov bl, 0Fh
+    call print_str
+    mov al, [score_hh]
+    add al, '0'
+    mov dh, 13
+    mov dl, 41
+    mov bl, 0Eh
+    call print_char
+    mov al, [score_hi]
+    add al, '0'
+    mov dh, 13
+    mov dl, 42
+    mov bl, 0Eh
+    call print_char
+    mov al, [score_lo]
+    add al, '0'
+    mov dh, 13
+    mov dl, 43
+    mov bl, 0Eh
+    call print_char
+
+    mov dh, 17
+    mov dl, 24
+    mov si, str_presskey
+    mov bl, 08h
+    call print_str
+    mov ah, 00h
+    int 16h
     ret
 
 ; ============================================================
@@ -1541,7 +2078,8 @@ title_line db '=============================================================$'
 opt1       db '1. Start Game$'
 opt2       db '2. Leaderboard$'
 opt3       db '3. Help$'
-opt4       db '4. Quit$'
+opt4       db '4. 2-Player$'
+opt5       db '5. Quit$'
 
 str_entername  db 'Enter your name (max 20 chars):$'
 str_inputbox   db '[                    ]$'
@@ -1569,6 +2107,13 @@ help_l3    db 'Avoid pipes  = Fly through the gaps$'
 help_l4    db 'Avoid walls  = Dont hit the bottom wall$'
 help_l5    db 'Score        = +1 for every pipe passed$'
 
+str_p1_lbl  db 'P1:$'
+str_p2_lbl  db 'P2:$'
+str_2p_over db '*** 2-PLAYER GAME OVER ***$'
+str_p1_wins db 'Player 1 WINS! (Yellow)$'
+str_p2_wins db 'Player 2 WINS! (Red)$'
+str_draw    db 'Its a DRAW!$'
+
 ; File I/O
 filename      db 'SCORES.DAT', 0
 file_handle   dw 0
@@ -1578,10 +2123,11 @@ bird_y        db 10
 bird_x        db 10
 velocity      db 0
 jumped        db 0
+jumped2       db 0
 pipe_x        db 79, 39
 old_pipe_x    db 79, 39
 gap_top       db 8, 8
-gap_size      db 6
+gap_size      db 5
 lives         db 3
 score_hh      db 0
 score_hi      db 0
@@ -1599,6 +2145,24 @@ pipe_tick      db 0    ; counts up each frame
 pipe_move_rate db 4    ; pipes move every N frames
 pipe_moved     db 0    ; 1 = pipes moved this frame, 0 = didn't move
 jump_sound_timer db 0
+bird2_y     db 14
+bird2_x     db 10
+p2_dead     db 0
+p1_dead     db 0
+bird_frame  db 0      ; cycles 0, 1, 2, 0, 1, 2 ...
+anim_tick   db 0      ; counts frames between animation steps
+gravity_tick db 0     ; counts frames between gravity steps
+
+; Skyline height table — 80 bytes, one per column
+skyline_heights:
+    db 0,0,4,4,4,4,4,4,0,0   ; cols 0-9
+    db 0,6,6,6,6,6,6,6,6,0   ; cols 10-19
+    db 0,0,3,3,3,3,3,0,0,0   ; cols 20-29
+    db 7,7,7,7,7,7,7,7,7,7   ; cols 30-39
+    db 7,7,7,7,7,7,7,7,7,7   ; cols 40-49
+    db 0,0,5,5,5,5,5,5,0,0   ; cols 50-59
+    db 0,4,4,4,4,4,4,4,0,0   ; cols 60-69
+    db 0,0,6,6,6,6,6,6,6,0   ; cols 70-79
 
 ; Leaderboard buffer — 3 slots x 22 bytes = 66 bytes
 ; Each slot: [score_byte][name 21 bytes]
