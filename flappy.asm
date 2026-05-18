@@ -108,11 +108,13 @@ print_str:
 ; PRINT_CHAR — AL=char, BL=color, DH=row, DL=col
 ; ============================================================
 print_char:
+    push cx             ; <--- SHIELD CX BEFORE MODIFYING
     call gotoxy
     mov ah, 09h
     mov bh, 0
     mov cx, 1
     int 10h
+    pop cx              ; <--- RESTORE CX TO ITS ORIGINAL STATE
     ret
 
 ; ============================================================
@@ -585,7 +587,7 @@ randomize_pipe:
     push bx
     mov  bl, 10             ; remainder 0..9
     div  bl
-    add  ah, 4              ; gap_top range: 4..13
+    add  ah, 5              ; gap_top range: 4..13
     pop  bx
     mov  [gap_top + bx], ah
     ret
@@ -683,11 +685,11 @@ draw_bird:
     je  .frame1
 
     ; frame 2
-    mov al, 0E0h
+    mov al, 01h
     jmp .do_draw
 
 .frame0:
-    mov al, 0F0h
+    mov al, 02h
     jmp .do_draw
 .frame1:
     mov al, 0DBh
@@ -870,26 +872,54 @@ erase_pipes:
 ; ============================================================
 draw_pipe_i:
     mov dh, 1
+    mov cl, [gap_top + bx]
 .top_loop:
-    cmp dh, [gap_top + bx]  ; Read directly from memory, bypass CL
-    jge .skip_top
-    mov al, 0B3h
+    cmp dh, cl
+    jge .draw_top_cap
+    mov al, 0DBh
+    push bx              ; <--- SHIELD BX (Pipe Index)
     mov bl, 02h
     call print_char
+    pop bx               ; <--- RESTORE BX
     inc dh
     jmp .top_loop
+
+.draw_top_cap:
+    cmp dh, 1
+    je  .skip_top
+    dec dh
+    mov al, 0DFh
+    push bx              ; <--- SHIELD BX
+    mov bl, 0Ah
+    call print_char
+    pop bx               ; <--- RESTORE BX
+    inc dh
+
 .skip_top:
-    mov cl, [gap_top + bx]
+    mov cl, [gap_top + bx]  ; BX is now safely 0 or 1!
     add cl, [gap_size]
     mov dh, cl
+
+    cmp dh, 23
+    jge .bot_loop
+    mov al, 0DCh
+    push bx              ; <--- SHIELD BX
+    mov bl, 0Ah
+    call print_char
+    pop bx               ; <--- RESTORE BX
+    inc dh
+
 .bot_loop:
     cmp dh, 23
     jge .pipe_done
-    mov al, 0B3h
+    mov al, 0DBh
+    push bx              ; <--- SHIELD BX
     mov bl, 02h
     call print_char
+    pop bx               ; <--- RESTORE BX
     inc dh
     jmp .bot_loop
+
 .pipe_done:
     ret
 
@@ -911,7 +941,7 @@ draw_ground:
 .gloop:
     cmp dl, 80
     jge .gdone
-    mov al, '-'
+    mov al, 0B1h
     mov bl, 06h
     call print_char
     inc dl
@@ -936,10 +966,10 @@ draw_ground_scroll:
     and al, 1
     cmp al, 0
     je .char_dash
-    mov al, ' '
+    mov al, 0B2h
     jmp .print
 .char_dash:
-    mov al, '-'
+    mov al, 0B1h
 .print:
     mov bl, 06h
     call print_char
@@ -1065,11 +1095,11 @@ draw_bird2:
     cmp al, 1
     je  .frame1_2
 
-    mov al, 0E0h
+    mov al, 01h
     jmp .do_draw2
 
 .frame0_2:
-    mov al, 0F0h
+    mov al, 02h
     jmp .do_draw2
 .frame1_2:
     mov al, 0DBh
