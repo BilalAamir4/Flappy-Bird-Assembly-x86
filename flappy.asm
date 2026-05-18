@@ -30,8 +30,6 @@ start:
     mov cl, 0
     int 10h
 
-
-
     ; Load leaderboard from file at startup
     call load_scores
 
@@ -66,7 +64,7 @@ clear_screen:
     mov cl, 0
     mov dh, 24
     mov dl, 79
-    mov bh, 17h
+    mov bh, 3Fh
     int 10h
     mov ah, 02h
     mov bh, 0
@@ -593,56 +591,73 @@ randomize_pipe:
     ret
 
 ; ============================================================
+; DRAW HUD BANNER — fills row 0 with solid blue background
+; ============================================================
+draw_hud_banner:
+    mov dh, 0
+    mov dl, 0
+.banner_loop:
+    cmp dl, 80
+    jge .banner_done
+    mov al, ' '
+    mov bl, 1Fh
+    call print_char
+    inc dl
+    jmp .banner_loop
+.banner_done:
+    ret
+
+; ============================================================
 ; DRAW HUD
 ; ============================================================
 draw_hud:
     mov dh, 0
     mov dl, 1
     mov si, str_score_lbl
-    mov bl, 0Fh
+    mov bl, 1Fh
     call print_str
     mov al, [score_hh]
     add al, '0'
     mov dh, 0
     mov dl, 8
-    mov bl, 0Eh
+    mov bl, 1Eh
     call print_char
     mov al, [score_hi]
     add al, '0'
     mov dh, 0
     mov dl, 9
-    mov bl, 0Eh
+    mov bl, 1Eh
     call print_char
     mov al, [score_lo]
     add al, '0'
     mov dh, 0
     mov dl, 10
-    mov bl, 0Eh
+    mov bl, 1Eh
     call print_char
 
     mov dh, 0
     mov dl, 60
     mov si, str_lives_lbl
-    mov bl, 0Fh
+    mov bl, 1Fh
     call print_str
     mov al, [lives]
     add al, '0'
     mov dh, 0
     mov dl, 67
-    mov bl, 0Ch
+    mov bl, 1Ch
     call print_char
 
     mov dh, 0
     mov dl, 35
     mov si, str_speed_lbl
-    mov bl, 0Fh
+    mov bl, 1Fh
     call print_str
     mov al, 5
     sub al, [pipe_move_rate]
     add al, '0'
     mov dh, 0
     mov dl, 42
-    mov bl, 0Bh
+    mov bl, 1Bh
     call print_char
 
     ; Boost indicator
@@ -651,14 +666,14 @@ draw_hud:
     mov dh, 0
     mov dl, 72
     mov al, 0F7h
-    mov bl, 0Eh
+    mov bl, 1Eh
     call print_char
     jmp .hud_done
 .no_boost_icon:
     mov dh, 0
     mov dl, 72
     mov al, ' '
-    mov bl, 17h
+    mov bl, 1Fh
     call print_char
 .hud_done:
     ret
@@ -669,31 +684,91 @@ draw_hud:
 erase_bird:
     mov dh, [bird_y]
     mov dl, [bird_x]
+    dec dl
+    call restore_bg_char
+
+    mov dh, [bird_y]
+    mov dl, [bird_x]
+    call restore_bg_char
+
+    mov dh, [bird_y]
+    mov dl, [bird_x]
+    inc dl
     call restore_bg_char
     ret
 
 draw_bird:
-    mov dh, [bird_y]
-    mov dl, [bird_x]
-    mov bl, 0Eh             ; yellow (P1)
-
-    ; Select character based on bird_frame
     mov al, [bird_frame]
     cmp al, 0
     je  .frame0
     cmp al, 1
     je  .frame1
 
-    ; frame 2
-    mov al, 01h
-    jmp .do_draw
+    ; frame 2: / o \
+    mov dh, [bird_y]
+    mov dl, [bird_x]
+    dec dl
+    mov al, 2Fh
+    mov bl, 3Eh
+    call print_char
+
+    mov dh, [bird_y]
+    mov dl, [bird_x]
+    mov al, 6Fh
+    mov bl, 3Eh
+    call print_char
+
+    mov dh, [bird_y]
+    mov dl, [bird_x]
+    inc dl
+    mov al, 5Ch
+    mov bl, 3Eh
+    call print_char
+    ret
 
 .frame0:
-    mov al, 02h
-    jmp .do_draw
+    ; frame 0: \ o /
+    mov dh, [bird_y]
+    mov dl, [bird_x]
+    dec dl
+    mov al, 5Ch
+    mov bl, 3Eh
+    call print_char
+
+    mov dh, [bird_y]
+    mov dl, [bird_x]
+    mov al, 6Fh
+    mov bl, 3Eh
+    call print_char
+
+    mov dh, [bird_y]
+    mov dl, [bird_x]
+    inc dl
+    mov al, 2Fh
+    mov bl, 3Eh
+    call print_char
+    ret
+
 .frame1:
-    mov al, 0DBh
-.do_draw:
+    ; frame 1: - o -
+    mov dh, [bird_y]
+    mov dl, [bird_x]
+    dec dl
+    mov al, 2Dh
+    mov bl, 3Eh
+    call print_char
+
+    mov dh, [bird_y]
+    mov dl, [bird_x]
+    mov al, 6Fh
+    mov bl, 3Eh
+    call print_char
+
+    mov dh, [bird_y]
+    mov dl, [bird_x]
+    inc dl
+    mov al, 2Dh
+    mov bl, 3Eh
     call print_char
     ret
 
@@ -798,6 +873,7 @@ update_star:
 restore_bg_char:
     push ax
     push bx
+    push dx 
     push si
 
     ; Load height for this column: SI = skyline_heights + DL
@@ -825,23 +901,24 @@ restore_bg_char:
 
 .rbg_body:
     mov al, 0DBh
-    mov bl, 08h
+    mov bl, 07h
     call print_char
     jmp .rbg_done
 
 .rbg_roof:
     mov al, 0DCh
-    mov bl, 07h
+    mov bl, 0Fh
     call print_char
     jmp .rbg_done
 
 .rbg_sky:
     mov al, ' '
-    mov bl, 17h
+    mov bl, 3Fh
     call print_char
 
 .rbg_done:
     pop si
+    pop dx
     pop bx
     pop ax
     ret
@@ -942,7 +1019,7 @@ draw_ground:
     cmp dl, 80
     jge .gdone
     mov al, 0B1h
-    mov bl, 06h
+    mov bl, 26h
     call print_char
     inc dl
     jmp .gloop
@@ -971,7 +1048,7 @@ draw_ground_scroll:
 .char_dash:
     mov al, 0B1h
 .print:
-    mov bl, 06h
+    mov bl, 26h
     call print_char
     pop dx
     pop cx
@@ -1006,7 +1083,7 @@ draw_sky:
 
     ; Draw rooftop
     mov al, 0DCh
-    mov bl, 07h               ; light grey rooftop
+    mov bl, 0Fh               ; bright white rooftop
     push cx
     call print_char
     pop cx
@@ -1016,7 +1093,7 @@ draw_sky:
     cmp dh, 23                ; stop before ground row
     jge .next_col
     mov al, 0DBh
-    mov bl, 08h               ; dark grey building body
+    mov bl, 07h               ; light grey building body
     push cx
     call print_char
     pop cx
@@ -1081,29 +1158,91 @@ check_collision:
 erase_bird2:
     mov dh, [bird2_y]
     mov dl, [bird2_x]
+    dec dl
+    call restore_bg_char
+
+    mov dh, [bird2_y]
+    mov dl, [bird2_x]
+    call restore_bg_char
+
+    mov dh, [bird2_y]
+    mov dl, [bird2_x]
+    inc dl
     call restore_bg_char
     ret
 
 draw_bird2:
-    mov dh, [bird2_y]
-    mov dl, [bird2_x]
-    mov bl, 0Ch             ; red (P2)
-
     mov al, [bird_frame]    ; P2 shares the same animation frame as P1
     cmp al, 0
     je  .frame0_2
     cmp al, 1
     je  .frame1_2
 
-    mov al, 01h
-    jmp .do_draw2
+    ; frame 2: / o \
+    mov dh, [bird2_y]
+    mov dl, [bird2_x]
+    dec dl
+    mov al, 2Fh
+    mov bl, 3Ch
+    call print_char
+
+    mov dh, [bird2_y]
+    mov dl, [bird2_x]
+    mov al, 6Fh
+    mov bl, 3Ch
+    call print_char
+
+    mov dh, [bird2_y]
+    mov dl, [bird2_x]
+    inc dl
+    mov al, 5Ch
+    mov bl, 3Ch
+    call print_char
+    ret
 
 .frame0_2:
-    mov al, 02h
-    jmp .do_draw2
+    ; frame 0: \ o /
+    mov dh, [bird2_y]
+    mov dl, [bird2_x]
+    dec dl
+    mov al, 5Ch
+    mov bl, 3Ch
+    call print_char
+
+    mov dh, [bird2_y]
+    mov dl, [bird2_x]
+    mov al, 6Fh
+    mov bl, 3Ch
+    call print_char
+
+    mov dh, [bird2_y]
+    mov dl, [bird2_x]
+    inc dl
+    mov al, 2Fh
+    mov bl, 3Ch
+    call print_char
+    ret
+
 .frame1_2:
-    mov al, 0DBh
-.do_draw2:
+    ; frame 1: - o -
+    mov dh, [bird2_y]
+    mov dl, [bird2_x]
+    dec dl
+    mov al, 2Dh
+    mov bl, 3Ch
+    call print_char
+
+    mov dh, [bird2_y]
+    mov dl, [bird2_x]
+    mov al, 6Fh
+    mov bl, 3Ch
+    call print_char
+
+    mov dh, [bird2_y]
+    mov dl, [bird2_x]
+    inc dl
+    mov al, 2Dh
+    mov bl, 3Ch
     call print_char
     ret
 
@@ -1613,6 +1752,7 @@ init_game:
 game:
     call init_game
     call clear_screen
+    call draw_hud_banner
     call draw_sky
     call draw_ground_scroll
 
@@ -1682,7 +1822,7 @@ game:
     jmp .move_pipe1
 .reset_pipe0:
     mov byte [pipe_x], 79
-    mov byte [old_pipe_x], 79
+    mov byte [old_pipe_x], 0     ; ← keep 0 so this frame's erase erases col 0
     xor bx, bx
     call randomize_pipe
 
@@ -1693,7 +1833,7 @@ game:
     jmp .skip_pipe_move
 .reset_pipe1:
     mov byte [pipe_x + 1], 79
-    mov byte [old_pipe_x + 1], 79
+    mov byte [old_pipe_x + 1], 0
     mov bx, 1
     call randomize_pipe
 
@@ -1714,6 +1854,7 @@ game:
     cmp byte [game_state], 0
     je  .game_over
     call clear_screen
+    call draw_hud_banner
     call draw_sky
     call draw_ground_scroll
     jmp .draw_frame
@@ -1754,19 +1895,20 @@ game_2p:
     mov byte [bird_y],  8
     mov byte [bird2_y], 14
     call clear_screen
+    call draw_hud_banner
     call draw_sky
     call draw_ground
 
     mov dh, 0
     mov dl, 1
     mov si, str_p1_lbl
-    mov bl, 0Eh
+    mov bl, 1Eh
     call print_str
 
     mov dh, 0
     mov dl, 55
     mov si, str_p2_lbl
-    mov bl, 0Ch
+    mov bl, 1Ch
     call print_str
 
 .g2_loop:
@@ -1869,7 +2011,7 @@ game_2p:
     jmp .g2_pipe1
 .g2_reset0:
     mov byte [pipe_x], 79
-    mov byte [old_pipe_x], 79
+    mov byte [old_pipe_x], 0
     xor bx, bx
     call randomize_pipe
 
@@ -1880,7 +2022,7 @@ game_2p:
     jmp .g2_skip_pipes
 .g2_reset1:
     mov byte [pipe_x + 1], 79
-    mov byte [old_pipe_x + 1], 79
+    mov byte [old_pipe_x + 1], 0
     mov bx, 1
     call randomize_pipe
 
