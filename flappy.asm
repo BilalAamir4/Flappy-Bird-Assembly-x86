@@ -1010,51 +1010,33 @@ draw_pipes:
     ret
 
 ; ============================================================
-; DRAW GROUND
-; ============================================================
-draw_ground:
-    mov dh, 23
-    mov dl, 0
-.gloop:
-    cmp dl, 80
-    jge .gdone
-    mov al, 0B1h
-    mov bl, 26h
-    call print_char
-    inc dl
-    jmp .gloop
-.gdone:
-    ret
-
-; ============================================================
 ; DRAW GROUND SCROLL — animated ground on row 23
 ; ============================================================
 draw_ground_scroll:
     inc byte [ground_offset]
-
     mov dh, 23
     mov dl, 0
     mov cx, 80
-.loop:
+.gs_loop:
     push cx
     push dx
     mov al, dl
     add al, [ground_offset]
-    and al, 1
+    and al, 3
     cmp al, 0
-    je .char_dash
-    mov al, 0B2h
-    jmp .print
-.char_dash:
-    mov al, 0B1h
-.print:
-    mov bl, 26h
+    je .gs_stripe
+    mov al, 0DBh
+    mov bl, 78h
+    jmp .gs_print
+.gs_stripe:
+    mov al, 0C4h
+    mov bl, 7Fh
+.gs_print:
     call print_char
     pop dx
     pop cx
     inc dl
-    loop .loop
-
+    loop .gs_loop
     ret
 
 ; ============================================================
@@ -1897,7 +1879,7 @@ game_2p:
     call clear_screen
     call draw_hud_banner
     call draw_sky
-    call draw_ground
+    call draw_ground_scroll
 
     mov dh, 0
     mov dl, 1
